@@ -13,6 +13,16 @@ async def on_chat_start():
     conversation_id = str(uuid.uuid4())
     cl.user_session.set("conversation_id", conversation_id)
     cl.user_session.set("message_history", [])
+    
+    # 加一個 RAG 模式開關
+    settings = await cl.ChatSettings([
+        cl.input_widget.Switch(
+            id="use_rag",
+            label="啟用知識庫 (RAG)",
+            initial=False
+        )
+    ]).send()
+    cl.user_session.set("use_rag", settings["use_rag"])
 
     try:
         health_check = requests.get(f"{DJANGO_API_BASE_URL}/health/", timeout=5)
@@ -28,6 +38,11 @@ async def on_chat_start():
 
     await cl.Message(content=welcome_msg).send()
 
+@cl.on_settings_update
+async def on_settings_update(settings):
+    # 使用者切換 RAG 開關時更新 session，否則 use_rag 永遠是初始值
+    cl.user_session.set("use_rag", settings["use_rag"])
+
 @cl.on_message
 async def on_message(message: cl.Message):
     conversation_id = cl.user_session.get("conversation_id")
@@ -42,7 +57,8 @@ async def on_message(message: cl.Message):
             json={
                 "message": message.content,
                 "conversation_id": conversation_id,
-                "message_history": message_history
+                "message_history": message_history,
+                "use_rag": cl.user_session.get("use_rag", False)
             },
             headers={"Content-Type": "application/json"},
             timeout=30
