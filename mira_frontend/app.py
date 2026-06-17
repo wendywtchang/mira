@@ -1,81 +1,98 @@
 """
 MIRA - My Intelligent Research Assistant
-
 """
 import os
-import sys
 import uuid
+import requests
 import chainlit as cl
+
+DJANGO_API_BASE_URL = "http://localhost:8000/api/v1"
 
 @cl.on_chat_start
 async def on_chat_start():
-    """當用戶開始新對話時執行"""
-    # 創建會話ID
     conversation_id = str(uuid.uuid4())
     cl.user_session.set("conversation_id", conversation_id)
-    
-    # 初始化消息歷史
     cl.user_session.set("message_history", [])
-    
-    # 發送歡迎訊息
-    await cl.Message(
-        content="您好！我是 Mira，您任勞任怨的RA。"
-    ).send()
+
+    try:
+        health_check = requests.get(f"{DJANGO_API_BASE_URL}/health/", timeout=5)
+        api_available = health_check.status_code == 200
+    except Exception as e:
+        api_available = False
+        print(f"Django API connection failed: {e}")
+
+    if api_available:
+        welcome_msg = "Hello! I'm MIRA, your personal AI research assistant. How can I help you today?"
+    else:
+        welcome_msg = "Hello! I'm MIRA.\n\n⚠️ Warning: Unable to connect to backend. Please make sure Django is running."
+
+    await cl.Message(content=welcome_msg).send()
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    """處理用戶發送的訊息"""
-    # 獲取會話數據
     conversation_id = cl.user_session.get("conversation_id")
     message_history = cl.user_session.get("message_history")
-    
-    # 顯示思考中的狀態
-    thinking_msg = cl.Message(content="I'm thinking...")
-    await thinking_msg.send()
-    
-    # 模擬AI處理和回覆
-    # 由於這是基礎版本，我們暫時使用簡單回應
-    user_message = message.content
-    
-    # 添加用戶訊息到歷史記錄
-    message_history.append({"role": "user", "content": user_message})
-    
-    # 處理簡單響應邏輯
-    response_text = generate_simple_response(user_message)
-    
-    # 添加助手回應到歷史記錄
-    message_history.append({"role": "assistant", "content": response_text})
-    
-    # 更新會話歷史
-    cl.user_session.set("message_history", message_history)
-    
-    # 移除思考中的消息
-    await thinking_msg.remove()
-    
-    # 發送回應
-    await cl.Message(content=response_text).send()
 
-def generate_simple_response(message: str) -> str:
-    """
-    生成簡單的回應 (模擬實際的AI回應)
-    """
-    # 簡單關鍵詞匹配
+    thinking_msg = cl.Message(content="Thinking...")
+    await thinking_msg.send()
+
+    try:
+        response = requests.post(
+            f"{DJANGO_API_BASE_URL}/chat/",
+            json={
+                "message": message.content,
+                "conversation_id": conversation_id,
+                "message_history": message_history
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            response_data = response.json()
+            response_text = response_data.get("response", "")
+            message_history = response_data.get("message_history", [])
+            cl.user_session.set("message_history", message_history)
+
+            await thinking_msg.remove()
+            await cl.Message(content=response_text).send()
+
+        else:
+            error_message = f"API request failed: {response.status_code}"
+            try:
+                error_data = response.json()
+                error_message += f" - {error_data.get('message', '')}"
+            except:
+                error_message += f" - {response.text}"
+
+            await thinking_msg.remove()
+            await cl.Message(content=error_message).send()
+
+    except requests.exceptions.ConnectionError:
+        await thinking_msg.remove()
+        await cl.Message(content="Unable to connect to backend. Please make sure Django is running.").send()
+        backup_response = generate_backup_response(message.content)
+        await cl.Message(content=f"[Local backup response]: {backup_response}").send()
+
+    except Exception as e:
+        await thinking_msg.remove()
+        await cl.Message(content=f"Error processing message: {str(e)}").send()
+
+
+def generate_backup_response(message: str) -> str:
     message = message.lower()
-    
-    if "你好" in message or "hi" in message or "hello" in message:
-        return "你好！有什麼我可以幫助你的嗎？"
-    
-    elif "你是誰" in message or "你的名字" in message:
-        return "您好！我是 Mira，您任勞任怨的RA。"
-    
-    elif "謝謝" in message or "thank you" in message or "thanks" in message:
-        return "不用謝！很高興能夠幫到您。"
-    
-    elif "再見" in message or "goodbye" in message or "byebye" in message:
-        return "再見！有需要隨時呼叫我。"
-    
+
+    if "hello" in message or "hi" in message or "你好" in message:
+        return "Hello! How can I help you?"
+    elif "who are you" in message or "你是誰" in message:
+        return "I'm MIRA, your personal AI research assistant."
+    elif "thank" in message or "謝謝" in message:
+        return "You're welcome!"
+    elif "bye" in message or "goodbye" in message or "再見" in message:
+        return "Goodbye! Feel free to come back anytime."
     else:
-        return "抱歉，目前我把大腦忘在在家裡了，無法回答這個問題。"
+        return "Sorry, the backend service is currently unavailable. Please make sure Django is running."
+
 
 if __name__ == "__main__":
-    print("啟動MIRA，基礎對話界面...")
+    print("Starting MIRA, connecting to Django backend...")

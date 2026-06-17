@@ -1,0 +1,32 @@
+"""
+MIRA Assistant 全局配置文件
+包含 API 密鑰、模型設置和其他配置參數
+"""
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# 基礎路徑設置
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# API 密鑰
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# LLM 配置
+LLM_CONFIG = {
+    "groq": {
+        "model_70b": "llama-3.3-70b-versatile",
+        "model_8b": "llama-3.1-8b-instant",
+        "default_model": "llama-3.3-70b-versatile",  # 預設用 70B
+        "temperature": 0.7,
+        "max_tokens": 1000,
+    }
+}
+
+# MIRA 系統提示
+SYSTEM_PROMPT = "你是 MIRA，一個任勞任怨的 AI 研究助理。請用繁體中文回答。"
