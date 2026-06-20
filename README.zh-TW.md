@@ -12,19 +12,21 @@ MIRA/
 │   │   ├── urls.py      # 主路由（接 api app）
 │   │   └── wsgi.py
 │   ├── api/             # API app（前後端橋樑）
-│   │   ├── views.py     # 處理請求邏輯（含 RAG 整合）
+│   │   ├── views.py     # 處理請求邏輯（含 RAG / 網路搜尋整合）
 │   │   └── urls.py      # API 路由
 │   └── manage.py
 ├── mira_frontend/       # Chainlit 前端
-│   └── app.py           # 含 RAG 開關 UI
+│   └── app.py           # 含 RAG 開關與網路搜尋開關 UI
 ├── modules/             # 共用模組
 │   ├── llm/
 │   │   └── groq_client.py
-│   └── rag/
-│       ├── document_processor.py  # PDF 載入與 chunk 切割
-│       ├── vector_store.py        # Chroma 向量索引（build / load）
-│       ├── retriever.py           # 向量搜索與 prompt 組合
-│       └── rag_manager.py         # RAG 統一入口
+│   ├── rag/
+│   │   ├── document_processor.py  # PDF 載入與 chunk 切割
+│   │   ├── vector_store.py        # Chroma 向量索引（build / load）
+│   │   ├── retriever.py           # 向量搜索與 prompt 組合
+│   │   └── rag_manager.py         # RAG 統一入口
+│   └── websearch/
+│       └── search_manager.py      # Tavily 搜尋與 prompt 組合
 ├── data/
 │   ├── documents/       # 放 PDF 的地方
 │   └── vector_store/    # Chroma 索引（自動生成，不上 GitHub）
@@ -63,7 +65,10 @@ pip install -r requirements.txt
 ```
 GROQ_API_KEY=gsk_xxx
 DJANGO_SECRET_KEY=xxx
+TAVILY_API_KEY=tvly-xxx
 ```
+
+Tavily 免費 API Key 可在 [tavily.com](https://tavily.com) 申請。
 
 ---
 
@@ -97,42 +102,37 @@ cd mira_frontend && chainlit run app.py --port 8501
 
 ## 架構設計
 
-### 溝通流程（無 RAG）
+### 模式優先序
+
+```
+網路搜尋 (Web Search) > 知識庫 (RAG) > 一般對話
+```
+
+每次請求只走一條路，確保 prompt 乾淨。
+
+### 溝通流程
 
 ```
 使用者在 Chainlit 輸入問題（http://localhost:8501）
     ↓
 app.py POST 到 http://localhost:8000/api/v1/chat/
     ↓
-views.py 收到請求 → 呼叫 GroqClient
-    ↓
-groq_client.py → Groq API（llama-3.3-70b-versatile）
-    ↓
-回傳 JSON 給 Chainlit → 顯示答案
-```
-
-### 溝通流程（啟用 RAG）
-
-```
-使用者在 Chainlit 開啟「啟用知識庫」開關並輸入問題
-    ↓
-app.py POST 到 /api/v1/chat/（帶 use_rag: true）
-    ↓
-views.py → rag.get_prompt_with_context(user_message)
-    ↓
-RAGManager → Chroma 向量搜索 → 取出 top-k chunks
-    ↓
-組合 context + 問題 → 完整 prompt
-    ↓
-GroqClient → Groq API → 回傳答案給 Chainlit
+views.py 根據開關狀態決定路徑：
+    ├── [網路搜尋 ON] → SearchManager → Tavily API → top-k 搜尋結果
+    │                                                    ↓
+    │                                              context + 問題 → prompt → Groq LLM → 回傳答案
+    ├── [知識庫 ON]   → RAGManager → Chroma 向量搜索 → top-k chunks
+    │                                                    ↓
+    │                                              context + 問題 → prompt → Groq LLM → 回傳答案
+    └── [預設]        → 直接呼叫 GroqClient → Groq LLM → 回傳答案
 ```
 
 ### RAG 對話歷史設計
 
 ```python
-# history 只存原始 user_message，不存 RAG prompt
+# history 只存原始 user_message，不存 RAG / 網路搜尋 prompt
 # 這樣對話記錄乾淨，重啟後繼續對話也不會帶入舊 context
-messages_for_llm = history + [{"role": "user", "content": rag_prompt}]
+messages_for_llm = history + [{"role": "user", "content": enriched_prompt}]
 reply = llm_client.generate_response_with_fallback(messages_for_llm, ...)
 history.append({"role": "user", "content": user_message})   # 存原始
 history.append({"role": "assistant", "content": reply})
@@ -184,14 +184,16 @@ python tests/test_api.py
 # .env 存機密（不上 GitHub）
 GROQ_API_KEY=gsk_xxx
 DJANGO_SECRET_KEY=xxx
+TAVILY_API_KEY=tvly-xxx
 
 # config.py 讀取 .env 並定義所有設定（可以上 GitHub）
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"          # PDF 和向量索引的根目錄
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 LLM_CONFIG = { "groq": { "default_model": "llama-3.3-70b-versatile", ... } }
-SYSTEM_PROMPT = "你是 MIRA，一個任勞任怨的 AI 研究助理。請用繁體中文回答。"
+SYSTEM_PROMPT = "You are MIRA, my artificial intelligent research assistant."
 ```
 
 ---
@@ -213,7 +215,7 @@ python manage.py createsuperuser # 建立管理員帳號
    ```bash
    python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
    ```
-2. 確認 `.env` 有 `GROQ_API_KEY` 和 `DJANGO_SECRET_KEY`
+2. 確認 `.env` 有 `GROQ_API_KEY`、`DJANGO_SECRET_KEY`、`TAVILY_API_KEY`
 3. 確認 `.gitignore` 包含：
    ```
    .env
@@ -229,9 +231,10 @@ python manage.py createsuperuser # 建立管理員帳號
 
 ## 待辦
 
+- [x] 基礎對話功能（Groq LLM）
 - [x] 加入 RAG 知識庫查詢功能（LangChain + Chroma）
+- [x] 加入網路搜尋能力（Tavily）
 - [ ] 改善 RAG chunk 品質（chunk_size / overlap / semantic chunking）
-- [ ] 加入網路搜尋能力
 - [ ] 加入語音輸入（Groq Whisper）
 - [ ] 加入視覺理解（Groq Vision）
 - [ ] 部署上線（Chainlit Cloud 或 Hugging Face Spaces）
@@ -239,4 +242,4 @@ python manage.py createsuperuser # 建立管理員帳號
 
 ---
 
-*最後更新：2026-06-17*
+*最後更新：2026-06-20*

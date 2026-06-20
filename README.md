@@ -2,7 +2,7 @@
 
 # MIRA — My Intelligent Research Assistant
 
-A personal AI research assistant chatbot built with Django, Chainlit, and Groq LLM, featuring a RAG (Retrieval-Augmented Generation) pipeline for querying academic PDF documents.
+A personal AI research assistant chatbot built with Django, Chainlit, and Groq LLM, featuring a RAG (Retrieval-Augmented Generation) pipeline for querying academic PDF documents and real-time web search via Tavily.
 
 ---
 
@@ -10,9 +10,10 @@ A personal AI research assistant chatbot built with Django, Chainlit, and Groq L
 
 - **Conversational AI** — Chat interface powered by Groq's `llama-3.3-70b-versatile` with multi-turn conversation history
 - **RAG Knowledge Base** — Upload academic PDFs and query them with semantic search; the assistant answers based on retrieved content
+- **Web Search** — Toggle real-time web search via Tavily; results are injected into the prompt as context before calling the LLM
 - **Persistent Vector Store** — Chroma index is saved to disk on first run; subsequent startups load instantly without re-embedding
-- **Toggleable RAG Mode** — Users can switch between general chat and knowledge base mode from the Chainlit UI
-- **Modular Architecture** — LLM client, RAG pipeline, and API are cleanly separated into reusable modules
+- **Toggleable Modes** — Users can switch between general chat, RAG, and web search from the Chainlit UI (web search takes priority over RAG)
+- **Modular Architecture** — LLM client, RAG pipeline, web search, and API are cleanly separated into reusable modules
 
 ---
 
@@ -21,11 +22,12 @@ A personal AI research assistant chatbot built with Django, Chainlit, and Groq L
 | Layer | Technology |
 |-------|-----------|
 | Frontend | Chainlit 2.x |
-| Backend | Django 5.x + Django REST |
+| Backend | Django 5.x |
 | LLM | Groq API (`llama-3.3-70b-versatile`) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
 | Vector Store | Chroma (LangChain) |
 | PDF Parsing | LangChain `PyPDFLoader` |
+| Web Search | Tavily API |
 
 ---
 
@@ -35,15 +37,20 @@ A personal AI research assistant chatbot built with Django, Chainlit, and Groq L
 User (Chainlit UI)
     ↓  POST /api/v1/chat/
 Django (views.py)
-    ├── [RAG OFF]  user message ──────────────────→ Groq LLM → reply
-    └── [RAG ON]   user message → RAGManager
-                                    ↓
-                               Chroma vector search
-                                    ↓
-                               top-k chunks + question → prompt
-                                    ↓
-                               Groq LLM → reply
+    ├── [Web Search ON]  user message → SearchManager
+    │                                     ↓
+    │                                Tavily API → top-k results
+    │                                     ↓
+    │                                results + question → prompt → Groq LLM → reply
+    ├── [RAG ON]         user message → RAGManager
+    │                                     ↓
+    │                                Chroma vector search → top-k chunks
+    │                                     ↓
+    │                                chunks + question → prompt → Groq LLM → reply
+    └── [default]        user message ──────────────────────────→ Groq LLM → reply
 ```
+
+Priority: **Web Search > RAG > General Chat**
 
 **RAG Pipeline:**
 
@@ -63,18 +70,20 @@ PDF files
 MIRA/
 ├── mira_backend/        # Django backend
 │   └── api/
-│       ├── views.py     # Chat endpoint with RAG integration
+│       ├── views.py     # Chat endpoint with RAG / web search integration
 │       └── urls.py
 ├── mira_frontend/       # Chainlit frontend
-│   └── app.py           # UI with RAG toggle switch
+│   └── app.py           # UI with RAG and web search toggle switches
 ├── modules/
 │   ├── llm/
-│   │   └── groq_client.py       # Groq API wrapper
-│   └── rag/
-│       ├── document_processor.py  # PDF loading & chunking
-│       ├── vector_store.py        # Chroma build / load
-│       ├── retriever.py           # Semantic search & prompt builder
-│       └── rag_manager.py         # Unified RAG entry point
+│   │   └── groq_client.py         # Groq API wrapper
+│   ├── rag/
+│   │   ├── document_processor.py  # PDF loading & chunking
+│   │   ├── vector_store.py        # Chroma build / load
+│   │   ├── retriever.py           # Semantic search & prompt builder
+│   │   └── rag_manager.py         # Unified RAG entry point
+│   └── websearch/
+│       └── search_manager.py      # Tavily search & prompt builder
 ├── data/documents/      # Place PDFs here
 ├── config.py            # Centralised configuration
 ├── run_mira.py          # One-command launcher
@@ -98,7 +107,10 @@ pip install -r requirements.txt
 ```
 GROQ_API_KEY=your_groq_api_key
 DJANGO_SECRET_KEY=your_django_secret_key
+TAVILY_API_KEY=your_tavily_api_key
 ```
+
+Get a free Tavily API key at [tavily.com](https://tavily.com).
 
 ### 3. Run
 
@@ -126,22 +138,27 @@ The index is saved automatically. On the next startup it loads from disk.
 
 ## Key Design Decisions
 
-**Conversation history vs RAG prompt**
-The RAG-enriched prompt is sent to the LLM but only the original user message is stored in conversation history. This keeps the chat log clean and prevents stale context from accumulating across turns.
+**Mode priority**
+Web search takes priority over RAG, which takes priority over general chat. Only one enrichment path runs per request, keeping the prompt clean.
+
+**Conversation history vs enriched prompt**
+The RAG/web-search-enriched prompt is sent to the LLM but only the original user message is stored in conversation history. This keeps the chat log clean and prevents stale context from accumulating across turns.
 
 **Persist path**
 `RAGManager` is initialised with `config.DATA_DIR / 'vector_store'` (an absolute path) so the Chroma index is always found regardless of which directory Django is started from.
 
 **Module-level initialisation**
-`GroqClient` and `RAGManager` are instantiated once at module load time in `views.py`, not per request, to avoid reloading the embedding model on every message.
+`GroqClient`, `RAGManager`, and `SearchManager` are instantiated once at module load time in `views.py`, not per request, to avoid reloading models on every message.
 
 ---
 
 ## Roadmap
 
+- [x] Conversational chat with Groq LLM
+- [x] RAG knowledge base (LangChain + Chroma)
+- [x] Web search integration (Tavily)
 - [ ] Improve RAG chunk quality (chunk size tuning, semantic chunking)
-- [ ] Web search integration
 - [ ] Vision understanding via Groq Vision
-- [ ] Voice input via Groq Whisper (Optional)
+- [ ] Voice input via Groq Whisper
 - [ ] Deployment
 - [ ] Migrate backend to FastAPI for async LLM calls

@@ -16,6 +16,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # API 密鑰
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 # LLM 配置
 LLM_CONFIG = {

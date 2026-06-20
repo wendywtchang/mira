@@ -16,6 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from modules.llm.groq_client import GroqClient
 from modules.rag import RAGManager
+from modules.websearch import SearchManager
 import config
 
 # 模組層級初始化：防止每次收到請求都重新載入，很慢
@@ -24,6 +25,7 @@ llm_client = GroqClient()
 rag = RAGManager(persist_dir=str(config.DATA_DIR / 'vector_store'))
 if rag.is_built():
     rag.load()
+search = SearchManager()
 
 def health_check(request):
     return JsonResponse({'status': 'ok'})
@@ -37,11 +39,13 @@ def chat(request):
             conversation_id = data.get('conversation_id', '')
             message_history = data.get('message_history', [])
             use_rag = data.get('use_rag', False)
+            use_websearch = data.get('use_websearch', False)
 
-            # RAG 開啟時用注入知識庫的 prompt，否則直接用原始訊息
-            # 送給 LLM 的 prompt 和存入 history 的 message 分開處理：
-            # history 只存原始訊息，避免 RAG prompt 污染對話紀錄
-            if use_rag and rag.is_built():
+            # 優先序：websearch > RAG > 一般對話
+            # history 只存原始訊息，避免 context prompt 污染對話紀錄
+            if use_websearch:
+                prompt = search.get_prompt_with_context(user_message)
+            elif use_rag and rag.is_built():
                 prompt = rag.get_prompt_with_context(user_message)
             else:
                 prompt = user_message
