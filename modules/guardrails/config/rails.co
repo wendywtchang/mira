@@ -1,0 +1,19 @@
+# Input rail: block unsafe user messages
+define flow self check input
+  $allowed = execute self_check_input
+  if not $allowed
+    bot inform cannot answer
+    stop
+
+define bot inform cannot answer
+  "I'm sorry, but I can't help with that request. I'm MIRA, your research assistant, and I'm here to support academic and research-related topics."
+
+# Output rail: block unsafe bot responses
+define flow self check output
+  $allowed = execute self_check_output
+  if not $allowed
+    bot inform output filtered
+    stop
+
+define bot inform output filtered
+  "I'm sorry, I'm unable to provide that response. Please ask me about research or academic topics."

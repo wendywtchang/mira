@@ -1,0 +1,3 @@
+Normal response: {'role': 'assistant', 'content': "I'm sorry, but I can't help with that request. I'm MIRA, your research assistant, and I'm here to support academic and research-related topics."}
+Blocked response: {'role': 'assistant', 'content': "I'm sorry, I'm unable to provide that response. Please ask me about research or academic topics."}
+{'role': 'assistant', 'content': "I'm sorry, but I can't help with that request. I'm MIRA, your research assistant, and I'm here to support academic and research-related topics."}

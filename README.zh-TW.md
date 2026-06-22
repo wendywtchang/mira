@@ -25,8 +25,14 @@ MIRA/
 │   │   ├── vector_store.py        # Chroma 向量索引（build / load）
 │   │   ├── retriever.py           # 向量搜索與 prompt 組合
 │   │   └── rag_manager.py         # RAG 統一入口
-│   └── websearch/
-│       └── search_manager.py      # Tavily 搜尋與 prompt 組合
+│   ├── websearch/
+│   │   └── search_manager.py      # Tavily 搜尋與 prompt 組合
+│   └── guardrails/
+│       ├── guard_manager.py       # NeMo Guardrails 包裝（check_input / check_output）
+│       └── config/
+│           ├── config.yml         # 模型設定（Groq 透過 OpenAI 相容 API 接入）
+│           ├── prompts.yml        # input / output 自我檢查 prompt
+│           └── rails.co           # Colang 流程（定義攔截行為與拒絕訊息）
 ├── data/
 │   ├── documents/       # 放 PDF 的地方
 │   └── vector_store/    # Chroma 索引（自動生成，不上 GitHub）
@@ -116,15 +122,24 @@ cd mira_frontend && chainlit run app.py --port 8501
 使用者在 Chainlit 輸入問題（http://localhost:8501）
     ↓
 app.py POST 到 http://localhost:8000/api/v1/chat/
+    { use_guardrails, use_rag, use_websearch }
     ↓
 views.py 根據開關狀態決定路徑：
-    ├── [網路搜尋 ON] → SearchManager → Tavily API → top-k 搜尋結果
-    │                                                    ↓
-    │                                              context + 問題 → prompt → Groq LLM → 回傳答案
-    ├── [知識庫 ON]   → RAGManager → Chroma 向量搜索 → top-k chunks
-    │                                                    ↓
-    │                                              context + 問題 → prompt → Groq LLM → 回傳答案
-    └── [預設]        → 直接呼叫 GroqClient → Groq LLM → 回傳答案
+    │
+    ├── [Guardrails ON]  check_input(user_message)
+    │                        ↓ 攔截 → 立即回傳拒絕訊息（不呼叫 LLM）
+    │                        ↓ 通過 → 繼續往下
+    │
+    ├── [網路搜尋 ON] → SearchManager → Tavily API → top-k 搜尋結果 → prompt
+    ├── [知識庫 ON]   → RAGManager → Chroma 向量搜索 → top-k chunks → prompt
+    └── [預設]        → 直接用原始訊息當 prompt
+                                ↓
+                          Groq LLM → reply
+                                ↓
+    ├── [Guardrails ON]  check_output(reply)
+    │                        ↓ 攔截 → 回傳拒絕訊息
+    │                        ↓ 通過 → 回傳 reply
+    └──────────────────────────────→ 回傳 reply
 ```
 
 ### RAG 對話歷史設計
@@ -137,6 +152,53 @@ reply = llm_client.generate_response_with_fallback(messages_for_llm, ...)
 history.append({"role": "user", "content": user_message})   # 存原始
 history.append({"role": "assistant", "content": reply})
 ```
+
+### Guardrails 設計
+
+**為什麼用 NeMo Guardrails 比 Web Search 複雜？**
+
+Web Search 只需要：Tavily API key + 一個 `SearchManager` wrapper，完全在 Python 層處理。
+
+NeMo Guardrails 需要：
+1. **三個設定檔**（`config.yml`、`prompts.yml`、`rails.co`）— 用 Colang 語言定義攔截規則
+2. **API 轉接**：NeMo 預設使用 OpenAI API，Groq 雖然提供 OpenAI 相容端點，但需要在 `GuardManager.__init__` 手動設定環境變數（`OPENAI_API_KEY`、`OPENAI_API_BASE`），或在 `config.yml` 裡注入 `base_url`，兩者都要才能確保不同版本都能運作
+3. **版本相容性問題**（見下方 bug 紀錄）
+
+**Guardrails 作為可切換 filter**
+
+`use_guardrails` 跟 `use_rag`、`use_websearch` 同樣設計為 request body 的 boolean flag，讓 demo 時可以從 Chainlit UI 即時開關，不需要重啟 server。關閉時整個請求路徑與無 guardrails 版本完全相同，無額外開銷。
+
+---
+
+### Bug 紀錄：NeMo `generate()` 回傳 dict 而非 str
+
+**症狀：** 開啟 guardrails 後呼叫 API 出現：
+```
+ERROR:root:Error processing request: 'dict' object has no attribute 'startswith'
+```
+
+**原因：** `LLMRails.generate()` 的型別標注是 `str`，但某些 NeMo Guardrails 版本實際回傳的是 `dict`。`guard_manager.py` 的 `check_input` / `check_output` 直接對回傳值呼叫 `.startswith()`，遇到 dict 就爆炸。
+
+**修法：** 在 `guard_manager.py` 加一個 `_extract_text()` helper，統一把回傳值轉成字串再比對：
+
+```python
+def _extract_text(response) -> str:
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        return response.get("content") or response.get("response") or str(response)
+    return str(response)
+```
+
+之後 `check_input` 和 `check_output` 都改成：
+```python
+raw = self.rails.generate(messages=[...])
+response = _extract_text(raw)
+if response.startswith(_INPUT_BLOCKED_PREFIX):
+    ...
+```
+
+---
 
 ### settings.py 路徑設計
 
@@ -234,6 +296,7 @@ python manage.py createsuperuser # 建立管理員帳號
 - [x] 基礎對話功能（Groq LLM）
 - [x] 加入 RAG 知識庫查詢功能（LangChain + Chroma）
 - [x] 加入網路搜尋能力（Tavily）
+- [x] 加入安全過濾層（NeMo Guardrails，可切換）
 - [ ] 改善 RAG chunk 品質（chunk_size / overlap / semantic chunking）
 - [ ] 加入語音輸入（Groq Whisper）
 - [ ] 加入視覺理解（Groq Vision）
@@ -242,4 +305,4 @@ python manage.py createsuperuser # 建立管理員帳號
 
 ---
 
-*最後更新：2026-06-20*
+*最後更新：2026-06-22*

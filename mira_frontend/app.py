@@ -25,10 +25,16 @@ async def on_chat_start():
             id="use_websearch",
             label="啟用網路搜尋 (Web Search)",
             initial=False
+        ),
+        cl.input_widget.Switch(
+            id="use_guardrails",
+            label="啟用安全過濾 (Guardrails)",
+            initial=False
         )
     ]).send()
     cl.user_session.set("use_rag", settings["use_rag"])
     cl.user_session.set("use_websearch", settings["use_websearch"])
+    cl.user_session.set("use_guardrails", settings["use_guardrails"])
 
     try:
         health_check = requests.get(f"{DJANGO_API_BASE_URL}/health/", timeout=5)
@@ -49,6 +55,7 @@ async def on_settings_update(settings):
     # 使用者切換開關時更新 session，否則值永遠是初始值
     cl.user_session.set("use_rag", settings["use_rag"])
     cl.user_session.set("use_websearch", settings["use_websearch"])
+    cl.user_session.set("use_guardrails", settings["use_guardrails"])
 
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -66,7 +73,8 @@ async def on_message(message: cl.Message):
                 "conversation_id": conversation_id,
                 "message_history": message_history,
                 "use_rag": cl.user_session.get("use_rag", False),
-                "use_websearch": cl.user_session.get("use_websearch", False)
+                "use_websearch": cl.user_session.get("use_websearch", False),
+                "use_guardrails": cl.user_session.get("use_guardrails", False)
             },
             headers={"Content-Type": "application/json"},
             timeout=30
