@@ -32,6 +32,8 @@ class GroqClient:
         self.client = Groq(api_key=self.api_key)
 
         self.model = config.LLM_CONFIG["groq"]["default_model"]
+        self.tool_use_model = config.LLM_CONFIG["groq"]["tool_use_model"]
+        self.tool_use_fallback_model = config.LLM_CONFIG["groq"]["tool_use_fallback_model"]
         self.temperature = config.LLM_CONFIG["groq"]["temperature"]
         self.max_tokens = config.LLM_CONFIG["groq"]["max_tokens"]
 
@@ -78,6 +80,43 @@ class GroqClient:
         except Exception as e:
             logging.error(f"Error while calling Groq API: {e}")
             return f"An error occurred while generating a response: {str(e)}"
+
+    def generate_with_tools(self,
+                            messages: List[Dict],
+                            tools: List[Dict],
+                            system_prompt: Optional[str] = None):
+        """
+        Call the Groq API with tool definitions.
+        Falls back to tool_use_fallback_model if the primary model fails (e.g. rate limit).
+        Returns the raw response object so the caller can inspect tool_calls or text.
+        """
+        formatted_messages = []
+        if system_prompt:
+            formatted_messages.append({"role": "system", "content": system_prompt})
+        formatted_messages.extend(messages)
+
+        try:
+            return self.client.chat.completions.create(
+                model=self.tool_use_model,
+                messages=formatted_messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0,  # deterministic output reduces malformed tool calls
+                max_tokens=self.max_tokens,
+            )
+        except Exception as e:
+            logging.warning(
+                f"[generate_with_tools] Primary model '{self.tool_use_model}' failed: {e}. "
+                f"Falling back to '{self.tool_use_fallback_model}'."
+            )
+            return self.client.chat.completions.create(
+                model=self.tool_use_fallback_model,
+                messages=formatted_messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0,
+                max_tokens=self.max_tokens,
+            )
 
     def generate_response_with_fallback(self,
                                         messages: List[Dict[str, str]],

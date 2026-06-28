@@ -2,19 +2,19 @@
 
 # MIRA — My Intelligent Research Assistant
 
-A personal AI research assistant chatbot built with Django, Chainlit, and Groq LLM, featuring a RAG (Retrieval-Augmented Generation) pipeline for querying academic PDF documents, real-time web search via Tavily, and an optional safety guardrail layer powered by NeMo Guardrails.
+A personal AI research assistant built with Django, Chainlit, and Groq LLM. Features two routing modes, a RAG pipeline for academic PDFs, real-time web search, and an optional safety guardrail layer.
 
 ---
 
 ## Features
 
-- **Conversational AI** — Chat interface powered by Groq's `llama-3.3-70b-versatile` with multi-turn conversation history
-- **RAG Knowledge Base** — Upload academic PDFs and query them with semantic search; the assistant answers based on retrieved content
-- **Web Search** — Toggle real-time web search via Tavily; results are injected into the prompt as context before calling the LLM
-- **Safety Guardrails** — Optional NeMo Guardrails layer that filters harmful or off-topic input/output using LLM-based self-check; can be toggled on/off per request for demo purposes
-- **Persistent Vector Store** — Chroma index is saved to disk on first run; subsequent startups load instantly without re-embedding
-- **Toggleable Modes** — Users can switch between general chat, RAG, web search, and guardrails from the Chainlit UI
-- **Modular Architecture** — LLM client, RAG pipeline, web search, guardrails, and API are cleanly separated into reusable modules
+- **Agentic Mode** — LLM decides which tool to call via function calling; routing decision is shown as a collapsible step in the UI for transparency
+- **Manual Mode** — User explicitly toggles RAG, web search, or general chat; deterministic and fully predictable
+- **RAG Knowledge Base** — Upload academic PDFs and query them with semantic search via Chroma + LangChain
+- **Web Search** — Real-time search via Tavily API, injected as context before the LLM call
+- **Safety Guardrails** — Optional NeMo Guardrails layer for input/output filtering; toggled per request with zero overhead when off
+- **Persistent Vector Store** — Chroma index saved to disk; loads instantly on subsequent startups
+- **Modular Architecture** — Each capability (LLM, RAG, search, guardrails, agent) is a standalone module
 
 ---
 
@@ -24,7 +24,9 @@ A personal AI research assistant chatbot built with Django, Chainlit, and Groq L
 |-------|-----------|
 | Frontend | Chainlit 2.x |
 | Backend | Django 5.x |
-| LLM | Groq API (`llama-3.3-70b-versatile`) |
+| LLM (chat) | Groq API (`openai/gpt-oss-120b`) |
+| LLM (tool use) | Groq API (`qwen/qwen3.6-27b`, fallback `openai/gpt-oss-120b`) |
+| Function Calling | Groq native tool use (two-step dispatch) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
 | Vector Store | Chroma (LangChain) |
 | PDF Parsing | LangChain `PyPDFLoader` |
@@ -37,38 +39,31 @@ A personal AI research assistant chatbot built with Django, Chainlit, and Groq L
 
 ```
 User (Chainlit UI)
-    ↓  POST /api/v1/chat/  { use_guardrails, use_rag, use_websearch }
+    ↓  POST /api/v1/chat/  { use_agentic, use_guardrails, use_rag, use_websearch }
 Django (views.py)
     │
     ├── [Guardrails ON]  check_input(user_message)
-    │                        ↓ blocked → return refusal immediately (no LLM call)
-    │                        ↓ allowed → continue
+    │                        ↓ blocked → return refusal (no LLM call)
     │
-    ├── [Web Search ON]  user message → SearchManager → Tavily API → top-k results
-    │                                     ↓
-    │                                results + question → prompt
-    ├── [RAG ON]         user message → RAGManager → Chroma → top-k chunks
-    │                                     ↓
-    │                                chunks + question → prompt
-    └── [default]        user message ──────────────────────────→ prompt
-                                           ↓
-                                      Groq LLM → reply
-                                           ↓
-    ├── [Guardrails ON]  check_output(reply) → blocked → return refusal
-    │                                        → allowed → return reply
-    └──────────────────────────────────────────────────→ return reply
+    ├── [Agentic Mode]   AgentManager.dispatch()
+    │                        ↓ 1st call: LLM selects tool via function calling
+    │                        ↓ execute tool (RAG or web search)
+    │                        ↓ 2nd call: LLM synthesises final answer
+    │
+    └── [Manual Mode]    user-toggled routing (web search > RAG > general chat)
+                                               ↓
+                                          Groq LLM → reply
+    │
+    └── [Guardrails ON]  check_output(reply)
 ```
 
-Priority: **Web Search > RAG > General Chat**
+Both modes return `mode`, `tool_used`, and `query_used` so the Chainlit UI can display a routing decision step for comparison.
 
 **RAG Pipeline:**
-
 ```
-PDF files
-  → PyPDFLoader (per-page Documents)
-  → RecursiveCharacterTextSplitter (chunk_size=500, overlap=50)
-  → HuggingFaceEmbeddings → Chroma index (saved to data/vector_store/)
-  → similarity_search() on query → context-injected prompt
+PDF → PyPDFLoader → RecursiveCharacterTextSplitter (chunk 500, overlap 50)
+    → HuggingFaceEmbeddings → Chroma (data/vector_store/)
+    → similarity_search() → context-injected prompt
 ```
 
 ---
@@ -79,13 +74,15 @@ PDF files
 MIRA/
 ├── mira_backend/        # Django backend
 │   └── api/
-│       ├── views.py     # Chat endpoint with RAG / web search integration
+│       ├── views.py     # Chat endpoint — manual and agentic routing
 │       └── urls.py
 ├── mira_frontend/       # Chainlit frontend
-│   └── app.py           # UI with RAG and web search toggle switches
+│   └── app.py           # Mode toggles + routing decision Step display
 ├── modules/
 │   ├── llm/
-│   │   └── groq_client.py         # Groq API wrapper
+│   │   └── groq_client.py         # Groq API wrapper (chat + tool use with fallback)
+│   ├── agent/
+│   │   └── agent_manager.py       # Two-step function calling dispatch
 │   ├── rag/
 │   │   ├── document_processor.py  # PDF loading & chunking
 │   │   ├── vector_store.py        # Chroma build / load
@@ -94,11 +91,8 @@ MIRA/
 │   ├── websearch/
 │   │   └── search_manager.py      # Tavily search & prompt builder
 │   └── guardrails/
-│       ├── guard_manager.py       # NeMo Guardrails wrapper (check_input / check_output)
-│       └── config/
-│           ├── config.yml         # Model config (Groq via OpenAI-compatible API)
-│           ├── prompts.yml        # Self-check prompts for input and output rails
-│           └── rails.co           # Colang flows defining rail behaviour
+│       ├── guard_manager.py       # NeMo Guardrails wrapper
+│       └── config/                # Colang rails config
 ├── data/documents/      # Place PDFs here
 ├── config.py            # Centralised configuration
 ├── run_mira.py          # One-command launcher
@@ -125,10 +119,6 @@ DJANGO_SECRET_KEY=your_django_secret_key
 TAVILY_API_KEY=your_tavily_api_key   # optional, only needed for web search
 ```
 
-Get a free Tavily API key at [tavily.com](https://tavily.com).
-
-> **Note on NeMo Guardrails:** `GROQ_API_KEY` is reused for guardrails. NeMo calls Groq through an OpenAI-compatible endpoint (`https://api.groq.com/openai/v1`), so no additional API key is needed. Guardrails are disabled gracefully if `nemoguardrails` is not installed.
-
 ### 3. Run
 
 ```bash
@@ -139,9 +129,9 @@ python run_mira.py
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:8501`
 
-### 4. Use the knowledge base
+### 4. Load the knowledge base
 
-Place PDF files in `data/documents/`, then run:
+Place PDF files in `data/documents/`, then run once:
 
 ```python
 from modules.rag import RAGManager
@@ -149,40 +139,26 @@ rag = RAGManager()
 rag.load_documents(["data/documents/your_paper.pdf"])
 ```
 
-The index is saved automatically. On the next startup it loads from disk.
+The index persists to disk and is loaded automatically on subsequent startups.
 
 ---
 
 ## Key Design Decisions
 
-**Mode priority**
-Web search takes priority over RAG, which takes priority over general chat. Only one enrichment path runs per request, keeping the prompt clean.
+**Agentic vs Manual mode**
+Manual mode is deterministic — the user controls which tool runs. Agentic mode delegates that decision to the LLM via function calling. Both are available simultaneously so behaviour can be compared directly in the UI.
+
+**Two-step function calling**
+`AgentManager.dispatch()` makes two Groq API calls: the first lets the LLM pick a tool; the second feeds the tool result back and gets the final answer. The assistant's `tool_calls` message must be included in the second call or the API returns 400.
+
+**Separate model for tool use**
+`qwen/qwen3.6-27b` is used for tool-calling requests because it is fine-tuned for structured JSON output and has more generous free-tier rate limits than larger models. `openai/gpt-oss-120b` is used for general chat and as the tool-use fallback. `temperature=0` is set for all tool-use calls to minimise malformed output.
 
 **Conversation history vs enriched prompt**
-The RAG/web-search-enriched prompt is sent to the LLM but only the original user message is stored in conversation history. This keeps the chat log clean and prevents stale context from accumulating across turns.
-
-**Persist path**
-`RAGManager` is initialised with `config.DATA_DIR / 'vector_store'` (an absolute path) so the Chroma index is always found regardless of which directory Django is started from.
+RAG/web-search context is injected into the prompt sent to the LLM, but only the original user message is stored in history. This keeps the chat log clean across turns.
 
 **Module-level initialisation**
-`GroqClient`, `RAGManager`, `SearchManager`, and `GuardManager` are instantiated once at module load time in `views.py`, not per request, to avoid reloading models on every message.
-
-**Guardrails as an optional filter**
-Guardrails are controlled by a `use_guardrails` boolean in the request body, consistent with `use_rag` and `use_websearch`. This makes it easy to toggle the safety layer on and off during demos without restarting the server. When disabled, the request path is identical to the non-guardrails flow with zero overhead.
-
-**NeMo Guardrails + Groq integration**
-NeMo Guardrails expects an OpenAI-compatible LLM. `GuardManager.__init__` sets `OPENAI_API_KEY` and `OPENAI_API_BASE` at startup so NeMo transparently calls Groq without any changes to the Colang config. The `config.yml` also embeds `base_url` directly so the `${GROQ_API_KEY}` substitution works in both code and config paths.
-
-**NeMo `generate()` returns a dict in newer versions (bug encountered)**
-`LLMRails.generate()` is typed as returning `str`, but in practice some versions return a `dict`. Calling `.startswith()` on a dict raises `AttributeError`. Fixed by adding a `_extract_text()` helper in `guard_manager.py` that coerces the response to a string before comparison:
-```python
-def _extract_text(response) -> str:
-    if isinstance(response, str):
-        return response
-    if isinstance(response, dict):
-        return response.get("content") or response.get("response") or str(response)
-    return str(response)
-```
+All managers (`GroqClient`, `RAGManager`, `SearchManager`, `GuardManager`, `AgentManager`) are instantiated once at Django module load time, not per request.
 
 ---
 
@@ -192,8 +168,10 @@ def _extract_text(response) -> str:
 - [x] RAG knowledge base (LangChain + Chroma)
 - [x] Web search integration (Tavily)
 - [x] Safety guardrails (NeMo Guardrails, toggleable)
-- [ ] Improve RAG chunk quality (chunk size tuning, semantic chunking)
-- [ ] Vision understanding via Groq Vision
+- [x] Agentic mode with LLM function calling
+- [x] Manual vs Agentic routing comparison UI
+- [ ] Improve RAG chunk quality (semantic chunking)
 - [ ] Voice input via Groq Whisper
+- [ ] Vision understanding via Groq Vision
 - [ ] Deployment
 - [ ] Migrate backend to FastAPI for async LLM calls

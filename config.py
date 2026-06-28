@@ -21,9 +21,11 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 # LLM 配置
 LLM_CONFIG = {
     "groq": {
-        "model_70b": "llama-3.3-70b-versatile",
-        "model_8b": "llama-3.1-8b-instant",
-        "default_model": "llama-3.3-70b-versatile",  # 預設用 70B
+        "default_model": "openai/gpt-oss-120b",
+        # qwen3.6-27b as primary for tool use: lower token cost = friendlier free-tier rate limits
+        # tool calling makes 2 API calls + carries tool definitions every time
+        "tool_use_model": "qwen/qwen3.6-27b",
+        "tool_use_fallback_model": "openai/gpt-oss-120b",
         "temperature": 0.7,
         "max_tokens": 1000,
     }

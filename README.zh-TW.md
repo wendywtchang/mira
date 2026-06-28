@@ -1,25 +1,22 @@
 > English version: [README.md](README.md)
 
-# MIRA Chatbot 建構筆記
+# MIRA 建構筆記
 
 ## 專案結構
 
 ```
 MIRA/
 ├── mira_backend/        # Django 後端
-│   ├── mira_backend/    # 設定檔
-│   │   ├── settings.py
-│   │   ├── urls.py      # 主路由（接 api app）
-│   │   └── wsgi.py
-│   ├── api/             # API app（前後端橋樑）
-│   │   ├── views.py     # 處理請求邏輯（含 RAG / 網路搜尋整合）
-│   │   └── urls.py      # API 路由
-│   └── manage.py
+│   └── api/
+│       ├── views.py     # 聊天 endpoint（Manual / Agentic 路由）
+│       └── urls.py
 ├── mira_frontend/       # Chainlit 前端
-│   └── app.py           # 含 RAG 開關與網路搜尋開關 UI
-├── modules/             # 共用模組
+│   └── app.py           # 模式切換 + routing decision Step 顯示
+├── modules/
 │   ├── llm/
-│   │   └── groq_client.py
+│   │   └── groq_client.py         # Groq API wrapper（含 tool use fallback）
+│   ├── agent/
+│   │   └── agent_manager.py       # 兩段式 function calling dispatch
 │   ├── rag/
 │   │   ├── document_processor.py  # PDF 載入與 chunk 切割
 │   │   ├── vector_store.py        # Chroma 向量索引（build / load）
@@ -28,55 +25,34 @@ MIRA/
 │   ├── websearch/
 │   │   └── search_manager.py      # Tavily 搜尋與 prompt 組合
 │   └── guardrails/
-│       ├── guard_manager.py       # NeMo Guardrails 包裝（check_input / check_output）
-│       └── config/
-│           ├── config.yml         # 模型設定（Groq 透過 OpenAI 相容 API 接入）
-│           ├── prompts.yml        # input / output 自我檢查 prompt
-│           └── rails.co           # Colang 流程（定義攔截行為與拒絕訊息）
+│       ├── guard_manager.py       # NeMo Guardrails 包裝
+│       └── config/                # Colang rails 設定檔
 ├── data/
 │   ├── documents/       # 放 PDF 的地方
-│   └── vector_store/    # Chroma 索引（自動生成，不上 GitHub）
+│   └── vector_store/    # Chroma 索引（自動生成）
 ├── tests/
-│   ├── test_api.py
-│   ├── test_rag.py
-│   └── logs/            # 測試 log（自動生成，不上 GitHub）
 ├── config.py            # 全局設定
 ├── run_mira.py          # 一鍵啟動
-├── requirements.txt
-└── .env
+└── requirements.txt
 ```
 
 ---
 
 ## 環境設定
 
-### 1. 建立 conda 環境
-
 ```bash
 conda create -n mira python=3.10
 conda activate mira
-```
-
-> **重要：每次啟動 MIRA 前都必須先 `conda activate mira`。**
-> 用錯環境會導致 Django 無法啟動，`run_mira.py` 會在最上面顯示錯誤訊息。
-
-### 2. 安裝套件
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. 設定 `.env`
+`.env` 設定：
 
 ```
 GROQ_API_KEY=gsk_xxx
 DJANGO_SECRET_KEY=xxx
-TAVILY_API_KEY=tvly-xxx
+TAVILY_API_KEY=tvly-xxx   # 只有 web search 需要
 ```
-
-Tavily 免費 API Key 可在 [tavily.com](https://tavily.com) 申請。
-
----
 
 ## 啟動
 
@@ -88,19 +64,13 @@ python run_mira.py
 - Django 後端：`http://localhost:8000`
 - Chainlit 前端：`http://localhost:8501`
 
-> `run_mira.py` 會自動檢查環境，若套件缺失會立即顯示錯誤。
-> Django 啟動時會載入 embedding 模型，約需 3–5 秒。
-
-### 手動啟動（需兩個終端機）
+手動啟動（兩個終端機）：
 
 ```bash
-# 終端機一：Django 後端
-conda activate mira
+# 終端機一
 cd mira_backend && python manage.py runserver
-# 確認：http://127.0.0.1:8000/api/v1/health/ 應看到 {"status": "ok"}
 
-# 終端機二：Chainlit 前端
-conda activate mira
+# 終端機二
 cd mira_frontend && chainlit run app.py --port 8501
 ```
 
@@ -108,201 +78,100 @@ cd mira_frontend && chainlit run app.py --port 8501
 
 ## 架構設計
 
-### 模式優先序
+### 兩種模式
 
 ```
-網路搜尋 (Web Search) > 知識庫 (RAG) > 一般對話
+[Manual Mode]  使用者決定工具（use_rag / use_websearch toggle）
+[Agentic Mode] LLM 透過 function calling 自己決定工具
 ```
 
-每次請求只走一條路，確保 prompt 乾淨。
+兩種模式都回傳 `mode`、`tool_used`、`query_used`，UI 顯示 routing decision Step 供比較。
 
-### 溝通流程
+### 請求流程
 
 ```
-使用者在 Chainlit 輸入問題（http://localhost:8501）
-    ↓
-app.py POST 到 http://localhost:8000/api/v1/chat/
-    { use_guardrails, use_rag, use_websearch }
-    ↓
-views.py 根據開關狀態決定路徑：
+Chainlit → POST /api/v1/chat/ { use_agentic, use_guardrails, use_rag, use_websearch }
     │
-    ├── [Guardrails ON]  check_input(user_message)
-    │                        ↓ 攔截 → 立即回傳拒絕訊息（不呼叫 LLM）
-    │                        ↓ 通過 → 繼續往下
+    ├── [Guardrails ON]  check_input → 攔截則立即回傳
     │
-    ├── [網路搜尋 ON] → SearchManager → Tavily API → top-k 搜尋結果 → prompt
-    ├── [知識庫 ON]   → RAGManager → Chroma 向量搜索 → top-k chunks → prompt
-    └── [預設]        → 直接用原始訊息當 prompt
-                                ↓
-                          Groq LLM → reply
-                                ↓
-    ├── [Guardrails ON]  check_output(reply)
-    │                        ↓ 攔截 → 回傳拒絕訊息
-    │                        ↓ 通過 → 回傳 reply
-    └──────────────────────────────→ 回傳 reply
+    ├── [Agentic]  AgentManager.dispatch()
+    │                  第一次 call：LLM 選擇工具
+    │                  執行工具（RAG 或 web search）
+    │                  第二次 call：LLM 整合結果產生答案
+    │
+    └── [Manual]   websearch > RAG > 一般對話
+                         ↓
+                    Groq LLM → reply
+    │
+    └── [Guardrails ON]  check_output → 攔截則回傳拒絕訊息
 ```
 
-### RAG 對話歷史設計
+### Function Calling 兩段式設計
 
 ```python
-# history 只存原始 user_message，不存 RAG / 網路搜尋 prompt
-# 這樣對話記錄乾淨，重啟後繼續對話也不會帶入舊 context
-messages_for_llm = history + [{"role": "user", "content": enriched_prompt}]
-reply = llm_client.generate_response_with_fallback(messages_for_llm, ...)
-history.append({"role": "user", "content": user_message})   # 存原始
-history.append({"role": "assistant", "content": reply})
+# 第一次 call：讓 LLM 決定要呼叫哪個工具
+response = llm.generate_with_tools(messages, tools)
+tool_call = response.choices[0].message.tool_calls[0]
+
+# 執行工具
+result = execute_tool(tool_call.function.name, ...)
+
+# 第二次 call：把工具結果餵回去，得到最終答案
+messages.append({"role": "assistant", "tool_calls": [...]})  # 不能省
+messages.append({"role": "tool", "content": result})
+final = llm.generate_with_tools(messages, tools)
 ```
+
+### 模型選擇
+
+| 用途 | 模型 |
+|------|------|
+| 一般對話 | `openai/gpt-oss-120b` |
+| Tool use（主力） | `qwen/qwen3.6-27b` |
+| Tool use（fallback） | `openai/gpt-oss-120b` |
+
+Tool use 用 `qwen/qwen3.6-27b` 的原因：專為結構化 JSON 輸出訓練、免費方案 rate limit 比 120B 寬鬆。`temperature=0` 確保 tool call 格式穩定。
+
+### RAG 持久化
+
+```
+第一次：rag.load_documents(pdf_paths) → 索引存到 data/vector_store/
+之後每次啟動：rag.load() → 從磁碟讀取，不需重新 embedding
+```
+
+### 對話歷史設計
+
+RAG / web search 的 context 注入 prompt 送給 LLM，但 history 只存原始 user message。避免 context 跨 turn 污染對話紀錄。
 
 ### Guardrails 設計
 
-**為什麼用 NeMo Guardrails 比 Web Search 複雜？**
-
-Web Search 只需要：Tavily API key + 一個 `SearchManager` wrapper，完全在 Python 層處理。
-
-NeMo Guardrails 需要：
-1. **三個設定檔**（`config.yml`、`prompts.yml`、`rails.co`）— 用 Colang 語言定義攔截規則
-2. **API 轉接**：NeMo 預設使用 OpenAI API，Groq 雖然提供 OpenAI 相容端點，但需要在 `GuardManager.__init__` 手動設定環境變數（`OPENAI_API_KEY`、`OPENAI_API_BASE`），或在 `config.yml` 裡注入 `base_url`，兩者都要才能確保不同版本都能運作
-3. **版本相容性問題**（見下方 bug 紀錄）
-
-**Guardrails 作為可切換 filter**
-
-`use_guardrails` 跟 `use_rag`、`use_websearch` 同樣設計為 request body 的 boolean flag，讓 demo 時可以從 Chainlit UI 即時開關，不需要重啟 server。關閉時整個請求路徑與無 guardrails 版本完全相同，無額外開銷。
-
----
-
-### Bug 紀錄：NeMo `generate()` 回傳 dict 而非 str
-
-**症狀：** 開啟 guardrails 後呼叫 API 出現：
-```
-ERROR:root:Error processing request: 'dict' object has no attribute 'startswith'
-```
-
-**原因：** `LLMRails.generate()` 的型別標注是 `str`，但某些 NeMo Guardrails 版本實際回傳的是 `dict`。`guard_manager.py` 的 `check_input` / `check_output` 直接對回傳值呼叫 `.startswith()`，遇到 dict 就爆炸。
-
-**修法：** 在 `guard_manager.py` 加一個 `_extract_text()` helper，統一把回傳值轉成字串再比對：
-
-```python
-def _extract_text(response) -> str:
-    if isinstance(response, str):
-        return response
-    if isinstance(response, dict):
-        return response.get("content") or response.get("response") or str(response)
-    return str(response)
-```
-
-之後 `check_input` 和 `check_output` 都改成：
-```python
-raw = self.rails.generate(messages=[...])
-response = _extract_text(raw)
-if response.startswith(_INPUT_BLOCKED_PREFIX):
-    ...
-```
-
----
-
-### settings.py 路徑設計
-
-```python
-BASE_DIR = Path(__file__).resolve().parent.parent  # mira_backend/
-ROOT_DIR = BASE_DIR.parent                          # MIRA/
-
-# 把根目錄加進 Python 路徑，讓 Django 找得到 modules/ 和 config.py
-sys.path.insert(0, str(ROOT_DIR))
-```
-
-> Django 從 `mira_backend/` 啟動，看不到上層的 `modules/`，
-> 所以要手動把 `MIRA/` 加進路徑。
-
-### RAG 持久化設計
-
-```
-第一次執行（建立索引）：rag.load_documents(pdf_paths)
-→ 索引存到 data/vector_store/
-
-之後每次啟動（直接載入）：rag.load()
-→ 從磁碟讀取，不需重新 embedding
-```
+NeMo 預設用 OpenAI API，Groq 提供相容端點。`GuardManager.__init__` 手動設定 `OPENAI_API_KEY` / `OPENAI_API_BASE` 讓 NeMo 透明地呼叫 Groq。`use_guardrails` 設計為 request body boolean flag，關閉時請求路徑與無 guardrails 版本完全相同。
 
 ---
 
 ## 測試
 
 ```bash
-conda activate mira
-
-# RAG 測試（含自動存 log）
-python tests/test_rag.py
-# log 存於 tests/logs/test_rag_YYYYMMDD_HHMMSS.log
-
-# API 測試（需先啟動 Django）
-python tests/test_api.py
+python tests/test_rag.py   # RAG 測試（自動存 log 到 tests/logs/）
+python tests/test_api.py   # API 測試（需先啟動 Django）
 ```
-
----
-
-## config.py 結構
-
-```python
-# .env 存機密（不上 GitHub）
-GROQ_API_KEY=gsk_xxx
-DJANGO_SECRET_KEY=xxx
-TAVILY_API_KEY=tvly-xxx
-
-# config.py 讀取 .env 並定義所有設定（可以上 GitHub）
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"          # PDF 和向量索引的根目錄
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-LLM_CONFIG = { "groq": { "default_model": "llama-3.3-70b-versatile", ... } }
-SYSTEM_PROMPT = "You are MIRA, my artificial intelligent research assistant."
-```
-
----
-
-## 常用 Django 指令
-
-```bash
-python manage.py runserver       # 啟動開發伺服器
-python manage.py migrate         # 執行資料庫遷移
-python manage.py makemigrations  # 產生遷移檔案
-python manage.py createsuperuser # 建立管理員帳號
-```
-
----
-
-## Push 到 GitHub 前記得
-
-1. 產生新的 Django SECRET_KEY：
-   ```bash
-   python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-   ```
-2. 確認 `.env` 有 `GROQ_API_KEY`、`DJANGO_SECRET_KEY`、`TAVILY_API_KEY`
-3. 確認 `.gitignore` 包含：
-   ```
-   .env
-   db.sqlite3
-   data/
-   tests/logs/
-   __pycache__/
-   *.pyc
-   .chainlit/
-   ```
 
 ---
 
 ## 待辦
 
 - [x] 基礎對話功能（Groq LLM）
-- [x] 加入 RAG 知識庫查詢功能（LangChain + Chroma）
-- [x] 加入網路搜尋能力（Tavily）
-- [x] 加入安全過濾層（NeMo Guardrails，可切換）
-- [ ] 改善 RAG chunk 品質（chunk_size / overlap / semantic chunking）
-- [ ] 加入語音輸入（Groq Whisper）
-- [ ] 加入視覺理解（Groq Vision）
-- [ ] 部署上線（Chainlit Cloud 或 Hugging Face Spaces）
-- [ ] 換成 FastAPI 後端（更適合 async LLM 呼叫）
+- [x] RAG 知識庫查詢（LangChain + Chroma）
+- [x] 網路搜尋（Tavily）
+- [x] 安全過濾層（NeMo Guardrails，可切換）
+- [x] Agentic mode（LLM function calling）
+- [x] Manual vs Agentic 對比 UI
+- [ ] 改善 RAG chunk 品質（semantic chunking）
+- [ ] 語音輸入（Groq Whisper）
+- [ ] 視覺理解（Groq Vision）
+- [ ] 部署上線
+- [ ] 換成 FastAPI 後端（async LLM 呼叫）
 
 ---
 
-*最後更新：2026-06-22*
+*最後更新：2026-06-28*

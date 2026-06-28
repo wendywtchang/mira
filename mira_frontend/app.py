@@ -13,17 +13,21 @@ async def on_chat_start():
     conversation_id = str(uuid.uuid4())
     cl.user_session.set("conversation_id", conversation_id)
     cl.user_session.set("message_history", [])
-    
-    # 模式開關：RAG 知識庫 / 網路搜尋（兩者互斥，websearch 優先）
+
     settings = await cl.ChatSettings([
         cl.input_widget.Switch(
+            id="use_agentic",
+            label="🔧 Agentic Mode (LLM decides tools)",
+            initial=False
+        ),
+        cl.input_widget.Switch(
             id="use_rag",
-            label="啟用知識庫 (RAG)",
+            label="啟用知識庫 (RAG) — Manual Mode only",
             initial=False
         ),
         cl.input_widget.Switch(
             id="use_websearch",
-            label="啟用網路搜尋 (Web Search)",
+            label="啟用網路搜尋 (Web Search) — Manual Mode only",
             initial=False
         ),
         cl.input_widget.Switch(
@@ -32,6 +36,8 @@ async def on_chat_start():
             initial=False
         )
     ]).send()
+
+    cl.user_session.set("use_agentic", settings["use_agentic"])
     cl.user_session.set("use_rag", settings["use_rag"])
     cl.user_session.set("use_websearch", settings["use_websearch"])
     cl.user_session.set("use_guardrails", settings["use_guardrails"])
@@ -50,12 +56,14 @@ async def on_chat_start():
 
     await cl.Message(content=welcome_msg).send()
 
+
 @cl.on_settings_update
 async def on_settings_update(settings):
-    # 使用者切換開關時更新 session，否則值永遠是初始值
+    cl.user_session.set("use_agentic", settings["use_agentic"])
     cl.user_session.set("use_rag", settings["use_rag"])
     cl.user_session.set("use_websearch", settings["use_websearch"])
     cl.user_session.set("use_guardrails", settings["use_guardrails"])
+
 
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -72,9 +80,10 @@ async def on_message(message: cl.Message):
                 "message": message.content,
                 "conversation_id": conversation_id,
                 "message_history": message_history,
+                "use_agentic": cl.user_session.get("use_agentic", False),
                 "use_rag": cl.user_session.get("use_rag", False),
                 "use_websearch": cl.user_session.get("use_websearch", False),
-                "use_guardrails": cl.user_session.get("use_guardrails", False)
+                "use_guardrails": cl.user_session.get("use_guardrails", False),
             },
             headers={"Content-Type": "application/json"},
             timeout=30
@@ -84,9 +93,15 @@ async def on_message(message: cl.Message):
             response_data = response.json()
             response_text = response_data.get("response", "")
             message_history = response_data.get("message_history", [])
-            cl.user_session.set("message_history", message_history)
+            mode = response_data.get("mode", "manual")
+            tool_used = response_data.get("tool_used", "none")
+            query_used = response_data.get("query_used")
 
+            cl.user_session.set("message_history", message_history)
             await thinking_msg.remove()
+
+            # Show routing decision before the answer so the user can see what happened
+            await _show_routing_step(mode, tool_used, query_used)
             await cl.Message(content=response_text).send()
 
         else:
@@ -94,7 +109,7 @@ async def on_message(message: cl.Message):
             try:
                 error_data = response.json()
                 error_message += f" - {error_data.get('message', '')}"
-            except:
+            except Exception:
                 error_message += f" - {response.text}"
 
             await thinking_msg.remove()
@@ -109,6 +124,29 @@ async def on_message(message: cl.Message):
     except Exception as e:
         await thinking_msg.remove()
         await cl.Message(content=f"Error processing message: {str(e)}").send()
+
+
+async def _show_routing_step(mode: str, tool_used: str, query_used: str | None):
+    """Show a collapsible Step block so users can compare Manual vs Agentic routing."""
+    _TOOL_LABELS = {
+        "search_web": "🌐 Web Search",
+        "query_knowledge_base": "📚 Knowledge Base",
+        "none": "💬 General Chat",
+    }
+    tool_label = _TOOL_LABELS.get(tool_used, tool_used)
+
+    if mode == "agentic":
+        step_name = "🔧 Agentic Routing"
+        if tool_used == "none":
+            step_output = f"LLM decided → **{tool_label}** (no tool needed)"
+        else:
+            step_output = f"LLM decided → **{tool_label}**\nQuery: `{query_used}`"
+    else:
+        step_name = "👤 Manual Routing"
+        step_output = f"User selected → **{tool_label}**"
+
+    async with cl.Step(name=step_name, type="tool") as step:
+        step.output = step_output
 
 
 def generate_backup_response(message: str) -> str:
