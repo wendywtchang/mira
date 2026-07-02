@@ -7,3 +7,4 @@ __pycache__/
 start.sh
 tests/logs/
 data/
+memory/*

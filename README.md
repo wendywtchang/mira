@@ -74,6 +74,8 @@ PDF → PyPDFLoader → RecursiveCharacterTextSplitter (chunk 500, overlap 50)
 
 ```
 MIRA/
+├── .github/workflows/
+│   └── ci.yml                     # GitHub Actions: ruff + pytest on every push
 ├── mira_backend/        # Django backend
 │   └── api/
 │       ├── views.py     # Chat endpoint — manual and agentic routing
@@ -95,8 +97,17 @@ MIRA/
 │   └── guardrails/
 │       ├── guard_manager.py       # NeMo Guardrails wrapper
 │       └── config/                # Colang rails config
+├── tests/               # Automated pytest tests (run by CI)
+│   ├── conftest.py
+│   ├── test_health.py
+│   └── test_views.py
+├── scripts/             # Manual exploration scripts (not run by CI)
+│   ├── play_rag.py
+│   ├── play_api.py
+│   └── play_guardrails.py
 ├── data/documents/      # Place PDFs here
 ├── config.py            # Centralised configuration
+├── pyproject.toml       # pytest + ruff configuration
 ├── run_mira.py          # One-command launcher
 └── requirements.txt
 ```
@@ -172,8 +183,9 @@ All managers (`GroqClient`, `RAGManager`, `SearchManager`, `GuardManager`, `Agen
 - [x] Safety guardrails (NeMo Guardrails, toggleable)
 - [x] Agentic mode with LLM function calling
 - [x] Manual vs Agentic routing comparison UI
-- [ ] Migrate tests to pytest
-- [ ] CI/CD pipeline (GitHub Actions + deployment)
+- [x] Migrate tests to pytest (pytest-django, ruff linting, pyproject.toml)
+- [x] CI pipeline (GitHub Actions — ruff + pytest on every push)
+- [ ] CD: deployment to cloud (Railway / Render)
 - [ ] Improve RAG chunk quality (semantic chunking)
 - [ ] Voice input via Groq Whisper
 - [ ] Vision understanding via Groq Vision

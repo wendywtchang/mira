@@ -32,8 +32,18 @@ MIRA/
 ├── data/
 │   ├── documents/       # 放 PDF 的地方
 │   └── vector_store/    # Chroma 索引（自動生成）
-├── tests/
+├── tests/               # pytest 自動化測試（CI 執行）
+│   ├── conftest.py
+│   ├── test_health.py
+│   └── test_views.py
+├── scripts/             # 手動探索腳本（不被 CI 收集）
+│   ├── play_rag.py
+│   ├── play_api.py
+│   └── play_guardrails.py
+├── .github/workflows/
+│   └── ci.yml           # GitHub Actions：ruff + pytest
 ├── config.py            # 全局設定
+├── pyproject.toml       # pytest + ruff 設定
 ├── run_mira.py          # 一鍵啟動
 └── requirements.txt
 ```
@@ -154,9 +164,15 @@ NeMo 預設用 OpenAI API，Groq 提供相容端點。`GuardManager.__init__` �
 ## 測試
 
 ```bash
-python tests/test_rag.py   # RAG 測試（自動存 log 到 tests/logs/）
-python tests/test_api.py   # API 測試（需先啟動 Django）
+# 自動化測試（CI 也跑這個）
+pytest tests/ -v
+
+# 手動探索腳本（需先啟動 Django 或有對應環境）
+python scripts/play_rag.py
+python scripts/play_api.py
 ```
+
+CI 設定在 `.github/workflows/ci.yml`，每次 push 自動跑 `ruff check` + `pytest`。
 
 ---
 
@@ -168,17 +184,16 @@ python tests/test_api.py   # API 測試（需先啟動 Django）
 - [x] 安全過濾層（NeMo Guardrails，可切換）
 - [x] Agentic mode（LLM function calling）
 - [x] Manual vs Agentic 對比 UI
-- [ ] 測試改用 pytest
-  - 安裝 `pytest`、`pytest-django`
-  - 把 `tests/test_rag.py` 和 `tests/test_api.py` 改寫成 pytest 格式（`def test_xxx()`）
-  - 設定 `pytest.ini` 或 `pyproject.toml`（Django settings 路徑）
-  - 確認 `pytest` 指令可以直接跑所有測試
-- [ ] CI：設定 GitHub Actions 自動化流程
-  - 建立 `.github/workflows/ci.yml`
-  - 安裝 conda 環境與套件
-  - 跑 `flake8` linting（或 `ruff`）
-  - 跑 `tests/test_rag.py`（不需啟動 Django）
-- [ ] CD：Docker 化 + 部署上線
+- [x] 測試改用 pytest
+  - `pytest`、`pytest-django`、`ruff` 加入 `requirements.txt`
+  - 新增 `pyproject.toml`（pytest + ruff 設定）
+  - 新增 `tests/conftest.py`、`test_health.py`、`test_views.py`
+  - 舊腳本移至 `scripts/play_xxx.py`，避免被 pytest 誤收集
+- [x] CI：GitHub Actions（每次 push 自動跑 ruff + pytest）
+  - `.github/workflows/ci.yml`
+  - GitHub Secrets 管理 API keys
+  - CI badge 加入 README
+- [ ] CD：部署上線
   - 寫 `Dockerfile`（Django backend）
   - 寫 `docker-compose.yml`（backend + frontend 一起啟動）
   - 選擇部署平台（Hugging Face Spaces / Railway / Render）
@@ -191,4 +206,4 @@ python tests/test_api.py   # API 測試（需先啟動 Django）
 
 ---
 
-*最後更新：2026-06-28*
+*最後更新：2026-07-02*
