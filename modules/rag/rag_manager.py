@@ -1,6 +1,6 @@
-from .vector_store import VectorStore
-from .retriever import Retriever
 from .document_processor import load_pdfs
+from .retriever import Retriever
+from .vector_store import VectorStore
 
 
 class RAGManager:

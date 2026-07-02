@@ -2,6 +2,8 @@
 
 # MIRA — My Intelligent Research Assistant
 
+[![CI](https://github.com/wendywtchang/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/wendywtchang/mira/actions/workflows/ci.yml)
+
 A personal AI research assistant built with Django, Chainlit, and Groq LLM. Features two routing modes, a RAG pipeline for academic PDFs, real-time web search, and an optional safety guardrail layer.
 
 ---
@@ -170,8 +172,9 @@ All managers (`GroqClient`, `RAGManager`, `SearchManager`, `GuardManager`, `Agen
 - [x] Safety guardrails (NeMo Guardrails, toggleable)
 - [x] Agentic mode with LLM function calling
 - [x] Manual vs Agentic routing comparison UI
+- [ ] Migrate tests to pytest
+- [ ] CI/CD pipeline (GitHub Actions + deployment)
 - [ ] Improve RAG chunk quality (semantic chunking)
 - [ ] Voice input via Groq Whisper
 - [ ] Vision understanding via Groq Vision
-- [ ] Deployment
 - [ ] Migrate backend to FastAPI for async LLM calls

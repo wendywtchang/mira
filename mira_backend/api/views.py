@@ -2,24 +2,23 @@
 MIRA Django Views
 Handles API endpoints for the MIRA AI assistant
 """
-import os
-import sys
 import json
 import logging
+
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+
+import config
+from modules.agent.agent_manager import AgentManager
+from modules.guardrails.guard_manager import GuardManager
 
 # # 添加根目錄到 Python 路徑
 # current_dir = os.path.dirname(os.path.abspath(__file__))
 # project_root = os.path.dirname(current_dir)
 # sys.path.append(project_root)
-
 from modules.llm.groq_client import GroqClient
 from modules.rag import RAGManager
 from modules.websearch import SearchManager
-from modules.guardrails.guard_manager import GuardManager
-from modules.agent.agent_manager import AgentManager
-import config
 
 # 模組層級初始化：防止每次收到請求都重新載入，很慢
 llm_client = GroqClient()

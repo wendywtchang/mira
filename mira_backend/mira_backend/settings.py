@@ -1,7 +1,8 @@
-from pathlib import Path
-from dotenv import load_dotenv
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 # 路徑設定
 BASE_DIR = Path(__file__).resolve().parent.parent

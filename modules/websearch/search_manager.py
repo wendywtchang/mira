@@ -1,6 +1,8 @@
 # modules/websearch/search_manager.py
 from tavily import TavilyClient
+
 import config
+
 
 class SearchManager:
     def __init__(self):

@@ -1,1 +1,1 @@
-from .agent_manager import AgentManager
+from .agent_manager import AgentManager as AgentManager

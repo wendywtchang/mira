@@ -1,10 +1,10 @@
 """
 MIRA - My Intelligent Research Assistant
 """
-import os
 import uuid
-import requests
+
 import chainlit as cl
+import requests
 
 DJANGO_API_BASE_URL = "http://localhost:8000/api/v1"
 

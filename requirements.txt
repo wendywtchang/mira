@@ -27,3 +27,8 @@ tavily-python
 
 # ── Guardrails ──────────────────────────────────────────────
 nemoguardrails>=0.9
+
+# ── Dev / CI ────────────────────────────────────────────────
+pytest>=8.0
+pytest-django>=4.9
+ruff>=0.9

@@ -2,6 +2,8 @@
 
 # MIRA 建構筆記
 
+[![CI](https://github.com/wendywtchang/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/wendywtchang/mira/actions/workflows/ci.yml)
+
 ## 專案結構
 
 ```
@@ -166,10 +168,25 @@ python tests/test_api.py   # API 測試（需先啟動 Django）
 - [x] 安全過濾層（NeMo Guardrails，可切換）
 - [x] Agentic mode（LLM function calling）
 - [x] Manual vs Agentic 對比 UI
+- [ ] 測試改用 pytest
+  - 安裝 `pytest`、`pytest-django`
+  - 把 `tests/test_rag.py` 和 `tests/test_api.py` 改寫成 pytest 格式（`def test_xxx()`）
+  - 設定 `pytest.ini` 或 `pyproject.toml`（Django settings 路徑）
+  - 確認 `pytest` 指令可以直接跑所有測試
+- [ ] CI：設定 GitHub Actions 自動化流程
+  - 建立 `.github/workflows/ci.yml`
+  - 安裝 conda 環境與套件
+  - 跑 `flake8` linting（或 `ruff`）
+  - 跑 `tests/test_rag.py`（不需啟動 Django）
+- [ ] CD：Docker 化 + 部署上線
+  - 寫 `Dockerfile`（Django backend）
+  - 寫 `docker-compose.yml`（backend + frontend 一起啟動）
+  - 選擇部署平台（Hugging Face Spaces / Railway / Render）
+  - 設定 secrets 管理（GROQ_API_KEY、TAVILY_API_KEY、DJANGO_SECRET_KEY）
+  - 處理 vector store 持久化（部署環境沒有本地磁碟）
 - [ ] 改善 RAG chunk 品質（semantic chunking）
 - [ ] 語音輸入（Groq Whisper）
 - [ ] 視覺理解（Groq Vision）
-- [ ] 部署上線
 - [ ] 換成 FastAPI 後端（async LLM 呼叫）
 
 ---

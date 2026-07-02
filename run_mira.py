@@ -4,10 +4,9 @@ MIRA 啟動腳本
 啟動 Django 後端和 Chainlit 前端
 """
 import os
-import sys
 import subprocess
+import sys
 import time
-import webbrowser
 from threading import Thread
 
 # ── 環境檢查：確認必要套件都有裝 ───────────────────────────────
@@ -60,9 +59,9 @@ def main():
     
     # 檢查是否已安裝所需的軟件包
     try:
-        import django
-        import chainlit
-        import requests
+        import chainlit  # noqa: F401
+        import django  # noqa: F401
+        import requests  # noqa: F401
     except ImportError as e:
         print(f"缺少必要的依賴包: {e}")
         print("請先運行: pip install django chainlit requests")
@@ -91,7 +90,7 @@ def main():
             else:
                 print(f"Django returned status {response.status_code}, retrying... ({attempt}/{max_attempts})")
                 time.sleep(3)
-        except Exception as e:
+        except Exception:
             print(f"Waiting for Django... ({attempt}/{max_attempts})")
             time.sleep(3)
 

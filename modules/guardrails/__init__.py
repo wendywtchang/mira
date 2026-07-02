@@ -1,2 +1,2 @@
-from .guard_manager import GuardManager
+from .guard_manager import GuardManager as GuardManager
 

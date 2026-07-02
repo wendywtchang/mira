@@ -1,8 +1,8 @@
 """
 MIRA API 測試
 """
+
 import requests
-import json
 
 BASE_URL = "http://localhost:8000/api/v1"
 
@@ -28,7 +28,7 @@ def test_chat_basic():
     assert data['status'] == 'success'
     assert 'response' in data
     assert 'message_history' in data
-    print(f"✓ Chat passed")
+    print("✓ Chat passed")
     print(f"  回應：{data['response'][:50]}...")
 
 def test_chat_history():
@@ -54,7 +54,7 @@ def test_chat_history():
         }
     )
     data = response2.json()
-    print(f"✓ History test passed")
+    print("✓ History test passed")
     print(f"  回應：{data['response'][:80]}...")
 
 if __name__ == "__main__":

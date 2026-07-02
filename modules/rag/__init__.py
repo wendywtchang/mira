@@ -1,1 +1,1 @@
-from .rag_manager import RAGManager
+from .rag_manager import RAGManager as RAGManager
