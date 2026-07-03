@@ -6,6 +6,10 @@
 
 A personal AI research assistant built with Django, Chainlit, and Groq LLM. Features two routing modes, a RAG pipeline for academic PDFs, real-time web search, and an optional safety guardrail layer.
 
+🚀 **Live Demo**: _deploying to Render — URL coming shortly_
+<!-- TODO: replace with actual URL after first deploy, e.g. https://mira-xxxx.onrender.com -->
+> Note: the demo runs on Render's free tier and sleeps after 15 minutes of inactivity — the first request may take ~1 minute to wake it up.
+
 ---
 
 ## Features
@@ -105,9 +109,11 @@ MIRA/
 │   ├── play_rag.py
 │   ├── play_api.py
 │   └── play_guardrails.py
+├── scripts/start_production.sh    # Production launcher (used by Render)
 ├── data/documents/      # Place PDFs here
 ├── config.py            # Centralised configuration
 ├── pyproject.toml       # pytest + ruff configuration
+├── render.yaml          # Render Blueprint (deployment as code)
 ├── run_mira.py          # One-command launcher
 └── requirements.txt
 ```
@@ -172,6 +178,31 @@ RAG/web-search context is injected into the prompt sent to the LLM, but only the
 
 **Module-level initialisation**
 All managers (`GroqClient`, `RAGManager`, `SearchManager`, `GuardManager`, `AgentManager`) are instantiated once at Django module load time, not per request.
+
+---
+
+## Deployment
+
+MIRA runs on [Render](https://render.com) (free tier) as a **single web service** hosting both processes — mirroring the local `run_mira.py` setup:
+
+```
+Render web service (512MB RAM, free tier)
+├── gunicorn → Django backend   127.0.0.1:8000  (internal only, not exposed)
+└── Chainlit frontend           0.0.0.0:$PORT   (public entry point)
+```
+
+**How it works:**
+
+- [`render.yaml`](render.yaml) is a Render Blueprint — the whole service is defined as code. Every push to `main` triggers an auto-deploy (after CI passes).
+- [`scripts/start_production.sh`](scripts/start_production.sh) starts gunicorn (production WSGI server), waits for the Django health check, then starts Chainlit bound to Render's `$PORT`.
+- **Secrets** (`GROQ_API_KEY`, `TAVILY_API_KEY`, `DJANGO_SECRET_KEY`) are set as Render environment variables (`sync: false` in the Blueprint) — never committed.
+- **Production hardening**: `DJANGO_DEBUG=False` and restricted `ALLOWED_HOSTS` via environment variables; Django is only reachable from localhost inside the instance.
+- **Memory strategy**: the embedding model (PyTorch, 300MB+) is lazy-loaded and only initialises when a vector store exists. The cloud instance ships without one, keeping total memory ~300MB — inside the 512MB free-tier limit.
+
+**Free-tier trade-offs (accepted for a demo):**
+
+- The service sleeps after 15 minutes of inactivity; cold start takes ~1 minute.
+- The disk is ephemeral — the RAG index (`data/`) is not deployed, so the knowledge-base toggle has no documents in the cloud. Chat, web search, agentic mode, and guardrails all work.
 
 ---
 

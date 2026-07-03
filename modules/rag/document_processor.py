@@ -1,9 +1,12 @@
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
 
 
 def load_pdfs(pdf_paths, chunk_size=500, chunk_overlap=50):
+    # lazy import：langchain_community 在 import 時就會載入 torch（300MB+ RAM），
+    # 但 load_pdfs 只有建索引時才用到，production 上不會執行
+    from langchain_community.document_loaders import PyPDFLoader
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
     # 遍歷所有 PDF 檔案，逐一載入
     all_docs = []
     for pdf_path in tqdm(pdf_paths, desc="Loading PDFs"):

@@ -1,0 +1,26 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# 一個 web service 同時跑 Django（內部）+ Chainlit（對外），見 scripts/start_production.sh
+services:
+  - type: web
+    name: mira
+    runtime: python
+    plan: free # 512MB RAM；閒置 15 分鐘會睡眠，喚醒約 1 分鐘
+    # --extra-index-url 讓 pip 抓 CPU-only 的 PyTorch wheel（~200MB）
+    # 不加的話 Linux 上預設抓 CUDA 版（好幾 GB），free tier 會爆
+    buildCommand: pip install --upgrade pip && pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+    startCommand: bash scripts/start_production.sh
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.15 # 跟本地 conda mira 環境一致
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: localhost,127.0.0.1 # Django 只從 localhost 被呼叫
+      # 以下三個 sync: false = 部署時在 Render dashboard 手動輸入，不進 repo
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false

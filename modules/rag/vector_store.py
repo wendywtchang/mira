@@ -1,15 +1,23 @@
 import os
 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 
 
 class VectorStore:
     def __init__(self, persist_dir='data/vector_store', model_name='all-MiniLM-L6-v2'):
-        # 初始化嵌入向量模型（只載入一次）
-        self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
+        self.model_name = model_name
+        self._embeddings = None
         self.persist_dir = persist_dir
         self.db = None
+
+    @property
+    def embeddings(self):
+        # lazy loading：embedding 模型（PyTorch，300MB+ RAM）只在真正需要時載入，
+        # 部署環境沒有向量資料庫時完全不載入，free tier 512MB 才夠用
+        if self._embeddings is None:
+            from langchain_huggingface import HuggingFaceEmbeddings
+            self._embeddings = HuggingFaceEmbeddings(model_name=self.model_name)
+        return self._embeddings
 
     def is_built(self):
         # 檢查磁碟上是否已有向量資料庫

@@ -2,6 +2,7 @@
 Django>=5.2
 django-cors-headers>=4.9
 groq>=0.37
+gunicorn>=23.0        # production WSGI server（deployment 用，本地開發仍用 runserver）
 
 # ── Frontend ───────────────────────────────────────────────
 chainlit>=2.0          # v0.7.x 需要 pydantic v1，與 LangChain 衝突，請勿降版

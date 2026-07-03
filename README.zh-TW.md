@@ -176,6 +176,34 @@ CI 設定在 `.github/workflows/ci.yml`，每次 push 自動跑 `ruff check` + `
 
 ---
 
+## 部署（Render）
+
+🚀 **Live Demo**：_部署中，URL 待補_
+<!-- TODO: 部署完成後補上實際 URL，如 https://mira-xxxx.onrender.com -->
+
+一個 Render web service（free tier）同時跑兩個 process，跟本地 `run_mira.py` 架構一致：
+
+```
+Render web service（512MB RAM）
+├── gunicorn → Django 後端   127.0.0.1:8000（僅內部，不對外）
+└── Chainlit 前端            0.0.0.0:$PORT（唯一對外入口）
+```
+
+**設計重點：**
+
+- `render.yaml`（Blueprint）＝部署設定即程式碼，push 到 `main` 就自動部署
+- `scripts/start_production.sh`：先起 gunicorn（production WSGI server，取代開發用的 `runserver`），等 health check 通過再起 Chainlit
+- 金鑰全部走 Render 環境變數（Blueprint 標 `sync: false`），不進 repo
+- Production 環境 `DJANGO_DEBUG=False`、`ALLOWED_HOSTS` 限縮，由環境變數控制
+- **記憶體策略**：embedding 模型（PyTorch，300MB+）改為 lazy loading，雲端沒有 vector store 就完全不載入 → 總記憶體約 300MB，塞得進免費方案的 512MB
+
+**免費方案的取捨（demo 可接受）：**
+
+- 閒置 15 分鐘會睡眠，冷啟動約 1 分鐘
+- 磁碟是暫時性的：`data/` 不部署，雲端知識庫是空的（RAG 開關存在但無文件）；一般對話、網搜、agentic mode、guardrails 都正常
+
+---
+
 ## 待辦
 
 - [x] 基礎對話功能（Groq LLM）
@@ -193,12 +221,12 @@ CI 設定在 `.github/workflows/ci.yml`，每次 push 自動跑 `ruff check` + `
   - `.github/workflows/ci.yml`
   - GitHub Secrets 管理 API keys
   - CI badge 加入 README
-- [ ] CD：部署上線
-  - 寫 `Dockerfile`（Django backend）
-  - 寫 `docker-compose.yml`（backend + frontend 一起啟動）
-  - 選擇部署平台（Hugging Face Spaces / Railway / Render）
-  - 設定 secrets 管理（GROQ_API_KEY、TAVILY_API_KEY、DJANGO_SECRET_KEY）
-  - 處理 vector store 持久化（部署環境沒有本地磁碟）
+- [ ] CD：部署上線（進行中，見上方「部署」段落）
+  - [x] 選擇部署平台：Render（免費方案永久有效；Railway 試用額度會過期）
+  - [x] `render.yaml` Blueprint + `scripts/start_production.sh`（不需要 Docker——Render 原生 Python runtime 就夠）
+  - [x] secrets 走 Render 環境變數（GROQ_API_KEY、TAVILY_API_KEY、DJANGO_SECRET_KEY）
+  - [x] vector store 持久化：接受免費方案限制，雲端不部署 `data/`（embedding 模型 lazy loading 省記憶體）
+  - [ ] Render dashboard 建立服務、驗證線上 URL
 - [ ] 改善 RAG chunk 品質（semantic chunking）
 - [ ] 語音輸入（Groq Whisper）
 - [ ] 視覺理解（Groq Vision）
@@ -206,4 +234,4 @@ CI 設定在 `.github/workflows/ci.yml`，每次 push 自動跑 `ruff check` + `
 
 ---
 
-*最後更新：2026-07-02*
+*最後更新：2026-07-03*
