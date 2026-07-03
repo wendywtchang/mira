@@ -37,6 +37,7 @@ class GroqClient:
         self.model = config.LLM_CONFIG["groq"]["default_model"]
         self.tool_use_model = config.LLM_CONFIG["groq"]["tool_use_model"]
         self.tool_use_fallback_model = config.LLM_CONFIG["groq"]["tool_use_fallback_model"]
+        self.reasoning_effort = config.LLM_CONFIG["groq"].get("reasoning_effort", {})
         self.temperature = config.LLM_CONFIG["groq"]["temperature"]
         self.max_tokens = config.LLM_CONFIG["groq"]["max_tokens"]
 
@@ -98,28 +99,31 @@ class GroqClient:
             formatted_messages.append({"role": "system", "content": system_prompt})
         formatted_messages.extend(messages)
 
-        try:
+        def _call(model: str):
+            kwargs = {}
+            # 抑制 reasoning 模型的思考 token，否則會吃光 max_tokens 導致空回應
+            # （參數值依模型而異，見 config.LLM_CONFIG）
+            effort = self.reasoning_effort.get(model)
+            if effort:
+                kwargs["reasoning_effort"] = effort
             return self.client.chat.completions.create(
-                model=self.tool_use_model,
+                model=model,
                 messages=formatted_messages,
                 tools=tools,
                 tool_choice="auto",
                 temperature=0,  # deterministic output reduces malformed tool calls
                 max_tokens=self.max_tokens,
+                **kwargs,
             )
+
+        try:
+            return _call(self.tool_use_model)
         except Exception as e:
             logging.warning(
                 f"[generate_with_tools] Primary model '{self.tool_use_model}' failed: {e}. "
                 f"Falling back to '{self.tool_use_fallback_model}'."
             )
-            return self.client.chat.completions.create(
-                model=self.tool_use_fallback_model,
-                messages=formatted_messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0,
-                max_tokens=self.max_tokens,
-            )
+            return _call(self.tool_use_fallback_model)
 
     def generate_response_with_fallback(self,
                                         messages: List[Dict[str, str]],

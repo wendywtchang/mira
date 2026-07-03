@@ -27,6 +27,13 @@ LLM_CONFIG = {
         # tool calling makes 2 API calls + carries tool definitions every time
         "tool_use_model": "qwen/qwen3.6-27b",
         "tool_use_fallback_model": "openai/gpt-oss-120b",
+        # reasoning 模型的思考 token 也算在 max_tokens 額度內：qwen 在第二次 tool call
+        # （整合工具結果）思考太長會把 1000 token 全部耗盡 → content 變空字串。
+        # 注意各模型支援的值不同：qwen 只接受 none/default；gpt-oss 只接受 low/medium/high
+        "reasoning_effort": {
+            "qwen/qwen3.6-27b": "none",
+            "openai/gpt-oss-120b": "low",
+        },
         "temperature": 0.7,
         "max_tokens": 1000,
     }

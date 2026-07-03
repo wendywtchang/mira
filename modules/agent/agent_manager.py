@@ -153,4 +153,23 @@ class AgentManager:
         )
 
         answer = final_response.choices[0].message.content or ""
+
+        # 保險：reasoning 模型可能把 token 額度全花在思考上（finish_reason=length），
+        # 導致正文為空。這時降級用一般 chat 模型直接根據工具結果回答，
+        # 而不是讓使用者收到一則空訊息。
+        if not answer.strip():
+            finish = final_response.choices[0].finish_reason
+            logging.warning(
+                f"[AgentManager] Empty answer from tool-use model "
+                f"(finish_reason={finish}). Falling back to plain chat model."
+            )
+            prompt = (
+                f"{tool_result}\n\n"
+                f"Based on the information above, answer the user's question: {user_message}"
+            )
+            answer = self.llm.generate_response_with_fallback(
+                messages=message_history + [{"role": "user", "content": prompt}],
+                system_prompt=system_prompt,
+            )
+
         return answer, tool_name, query
