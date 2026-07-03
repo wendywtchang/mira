@@ -178,8 +178,7 @@ CI 設定在 `.github/workflows/ci.yml`，每次 push 自動跑 `ruff check` + `
 
 ## 部署（Render）
 
-🚀 **Live Demo**：_部署中，URL 待補_
-<!-- TODO: 部署完成後補上實際 URL，如 https://mira-xxxx.onrender.com -->
+🚀 **Live Demo**：[https://mira-h7r1.onrender.com](https://mira-h7r1.onrender.com)（免費方案會睡眠，第一次開啟約等 1 分鐘）
 
 一個 Render web service（free tier）同時跑兩個 process，跟本地 `run_mira.py` 架構一致：
 
@@ -221,12 +220,12 @@ Render web service（512MB RAM）
   - `.github/workflows/ci.yml`
   - GitHub Secrets 管理 API keys
   - CI badge 加入 README
-- [ ] CD：部署上線（進行中，見上方「部署」段落）
+- [x] CD：部署上線（見上方「部署」段落）
   - [x] 選擇部署平台：Render（免費方案永久有效；Railway 試用額度會過期）
   - [x] `render.yaml` Blueprint + `scripts/start_production.sh`（不需要 Docker——Render 原生 Python runtime 就夠）
   - [x] secrets 走 Render 環境變數（GROQ_API_KEY、TAVILY_API_KEY、DJANGO_SECRET_KEY）
   - [x] vector store 持久化：接受免費方案限制，雲端不部署 `data/`（embedding 模型 lazy loading 省記憶體）
-  - [ ] Render dashboard 建立服務、驗證線上 URL
+  - [x] 上線驗證：https://mira-h7r1.onrender.com（UI 200、websocket 握手 OK）
 - [ ] 改善 RAG chunk 品質（semantic chunking）
 - [ ] 語音輸入（Groq Whisper）
 - [ ] 視覺理解（Groq Vision）

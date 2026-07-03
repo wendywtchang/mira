@@ -6,8 +6,7 @@
 
 A personal AI research assistant built with Django, Chainlit, and Groq LLM. Features two routing modes, a RAG pipeline for academic PDFs, real-time web search, and an optional safety guardrail layer.
 
-🚀 **Live Demo**: _deploying to Render — URL coming shortly_
-<!-- TODO: replace with actual URL after first deploy, e.g. https://mira-xxxx.onrender.com -->
+🚀 **Live Demo**: [https://mira-h7r1.onrender.com](https://mira-h7r1.onrender.com)
 > Note: the demo runs on Render's free tier and sleeps after 15 minutes of inactivity — the first request may take ~1 minute to wake it up.
 
 ---
@@ -216,7 +215,7 @@ Render web service (512MB RAM, free tier)
 - [x] Manual vs Agentic routing comparison UI
 - [x] Migrate tests to pytest (pytest-django, ruff linting, pyproject.toml)
 - [x] CI pipeline (GitHub Actions — ruff + pytest on every push)
-- [ ] CD: deployment to cloud (Railway / Render)
+- [x] CD: deployed to Render free tier — [live demo](https://mira-h7r1.onrender.com)
 - [ ] Improve RAG chunk quality (semantic chunking)
 - [ ] Voice input via Groq Whisper
 - [ ] Vision understanding via Groq Vision
